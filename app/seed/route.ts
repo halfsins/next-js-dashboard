@@ -5,6 +5,7 @@ import { invoices, customers, revenue, users } from '../lib/placeholder-data';
 const sql = postgres(process.env.POSTGRES_URL!, {
   ssl: 'require',
   prepare: false,
+  connect_timeout: 10,
 });
 
 async function seedUsers() {
@@ -105,16 +106,24 @@ async function seedRevenue() {
 }
 
 export async function GET() {
+  if (!process.env.POSTGRES_URL) {
+    return Response.json(
+      { error: 'POSTGRES_URL is not set in .env.local' },
+      { status: 500 },
+    );
+  }
+
   try {
-    const result = await sql.begin((sql) => [
-      seedUsers(),
-      seedCustomers(),
-      seedInvoices(),
-      seedRevenue(),
-    ]);
+    // Run in order (customers before invoices). Avoid sql.begin here:
+    // it can deadlock when seed helpers use the global pool connection.
+    await seedUsers();
+    await seedCustomers();
+    await seedInvoices();
+    await seedRevenue();
 
     return Response.json({ message: 'Database seeded successfully' });
   } catch (error) {
+    console.error('Seed error:', error);
     return Response.json({ error }, { status: 500 });
   }
 }
